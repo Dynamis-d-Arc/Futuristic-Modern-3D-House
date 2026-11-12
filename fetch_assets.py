@@ -1,4 +1,4 @@
-"""Download the CC0 furniture models render.py uses from Poly Haven (glTF, 2K textures) into assets/<id>/.
+"""Download the CC0 models render.py uses from Poly Haven (glTF) into assets/<id>/: furniture with 2K textures, small props with 1K.
 
     python fetch_assets.py
 """
@@ -9,6 +9,10 @@ IDS = ("modern_arm_chair_01 mid_century_lounge_chair dining_chair_02 Ottoman_01 
        "modern_coffee_table_01 side_table_01 modern_wooden_cabinet steel_frame_shelves_03 drawer_cabinet "
        "modern_ceiling_lamp_01 potted_plant_01 potted_plant_02 potted_plant_04 ceramic_vase_01 ceramic_vase_02 "
        "hanging_picture_frame_01").split()
+PROPS = ("throw_pillows_01 wicker_basket_01 wicker_basket_02 wine_bottles_01 wooden_bowl_01 lemon croissant carrot_cake tea_set_01 "
+         "jug_01 wooden_cutting_board pot_enamel_01 chess_set standing_picture_frame_01 standing_picture_frame_02 alarm_clock_01 "
+         "marble_bust_01 Ukulele_01 ceramic_vase_03 ceramic_vase_04 brass_vase_01 hanging_picture_frame_02 wall_clock "
+         "book_encyclopedia_set_01 fishermans_hat rubber_boots").split()
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 UA = {"User-Agent": "house-render-script/1.0"}
 
@@ -22,9 +26,9 @@ def get(f):
 
 
 total = 0
-for i in IDS:
+for i, res in [(i, "2k") for i in IDS] + [(i, "1k") for i in PROPS]:
     api = urllib.request.Request("https://api.polyhaven.com/files/" + i, headers=UA)
-    g = json.load(urllib.request.urlopen(api, timeout=120))["gltf"]["2k"]["gltf"]
+    g = json.load(urllib.request.urlopen(api, timeout=120))["gltf"][res]["gltf"]
     folder = os.path.join(OUT, i)
     os.makedirs(folder, exist_ok=True)
     doc = json.loads(get(g))

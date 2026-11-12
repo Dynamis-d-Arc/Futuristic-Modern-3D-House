@@ -272,11 +272,11 @@ def box(x0, x1, y0, y1, z0, z1, m, bevel=0.0, p=None, puff=0.0):
     return o
 
 
-def rod(p0, p1, r, m, p=None, r2=None, seg=20):
+def rod(p0, p1, r, m, p=None, r2=None, seg=20, cap=True):
     p0, p1 = Vector(p0), Vector(p1)
     d = p1 - p0
     bm = bmesh.new()
-    bmesh.ops.create_cone(bm, cap_ends=True, segments=seg, radius1=r, radius2=r if r2 is None else r2, depth=d.length)
+    bmesh.ops.create_cone(bm, cap_ends=cap, segments=seg, radius1=r, radius2=r if r2 is None else r2, depth=d.length)
     for f in bm.faces:
         f.smooth = len(f.verts) == 4
     o = obj("rod", bm, m, p, (p0 + p1) / 2)
@@ -660,6 +660,8 @@ def make_bed(w=2.0, l=2.1):
         model("side_table_01", nx, l / 2 - 0.28, 0, 90 * sx)
         rod((nx, l / 2 - 0.28, 0.55), (nx, l / 2 - 0.28, 0.6), 0.05, BLACK)
         ball(nx, l / 2 - 0.28, 0.71, 0.11, LAMP)
+    model("alarm_clock_01", w / 2 + 0.36, l / 2 - 0.42, 0.55, 25)
+    model("standing_picture_frame_01", -w / 2 - 0.38, l / 2 - 0.42, 0.55, -110)
     box(-w / 2 - 0.02, w / 2 + 0.02, l / 2 - 0.86, l / 2 - 0.6, 0.555, 0.59, LINEN, 0.015, None, 0.04)  # turned-down sheet
     duvet = drape(sheet(-w / 2 - 0.26, w / 2 + 0.26, -l / 2 - 0.22, l / 2 - 0.66, 0.62, DUVET), [mattress, frame], thick=0.035)
     drape(sheet(-w / 2 - 0.2, w / 2 + 0.2, -l / 2 + 0.12, -l / 2 + 0.72, 0.75, ACC, 0.03), [duvet, mattress, frame], frames=40, thick=0.012)
@@ -721,6 +723,155 @@ def lounger(x, y, z, rot):
     b.location.z += 0.14
     for sy in (-0.8, 0.3):
         box(-0.33, 0.33, sy - 0.03, sy + 0.03, 0, 0.2, BLACK, 0, g)
+
+
+# ---------------------------------------------------------------- bathrooms, wardrobes and small things
+PORCELAIN = pbr("porcelain", (0.9, 0.9, 0.88), 0.06)
+CHROME = pbr("chrome", (0.8, 0.8, 0.82), 0.1, 1.0)
+MIRROR = pbr("mirror", (0.92, 0.92, 0.92), 0.0, 1.0)
+SCREEN = pbr("screen", (0.01, 0.01, 0.012), 0.06)
+LAPTOP = glow("laptop_screen", (0.45, 0.6, 0.9), 1.2)
+SHEER = foliage("sheer", ((0.8, 0.78, 0.73), (0.85, 0.83, 0.78)))  # same light-through-cloth shader as the leaves
+BOTTLES = [pbr("amber", (0.3, 0.13, 0.03), 0.12), pbr("sage", (0.42, 0.5, 0.42), 0.3), pbr("cream", (0.88, 0.87, 0.84), 0.25),
+           pbr("charcoal", (0.05, 0.05, 0.055), 0.3)]
+CLOTHES = [tex(pbr("cloth%d" % i, c, 0.9, Sheen_Weight=0.4), tuple(v * 0.8 for v in c), size=220, bump=0.25)
+           for i, c in enumerate(((0.85, 0.84, 0.8), (0.05, 0.08, 0.15), (0.28, 0.28, 0.3), (0.55, 0.46, 0.35), (0.19, 0.24, 0.17),
+                                  (0.03, 0.03, 0.035), (0.58, 0.36, 0.34), (0.1, 0.2, 0.28), (0.72, 0.68, 0.58), (0.45, 0.12, 0.1)))]
+
+
+def at(g, lx, ly, lz=0.0):
+    """World position of a point given in the local coordinates of group g."""
+    a = g.rotation_euler.z
+    return (g.location.x + lx * math.cos(a) - ly * math.sin(a), g.location.y + lx * math.sin(a) + ly * math.cos(a), g.location.z + lz)
+
+
+def bottle(x, y, z, h=0.2, r=0.035, m=None, pump=True, p=None):
+    m = m or R.choice(BOTTLES)
+    rod((x, y, z), (x, y, z + h * 0.7), r, m, p, seg=14)
+    rod((x, y, z + h * 0.7), (x, y, z + h * 0.8), r, m, p, r2=r * 0.4, seg=14)
+    rod((x, y, z + h * 0.8), (x, y, z + h), r * 0.35, BLACK, p, seg=10)
+    if pump:
+        rod((x, y, z + h), (x + r * 1.5, y, z + h), 0.006, BLACK, p, seg=6)
+
+
+def stack(x, y, z, n, p=None, w=0.34, d=0.24, mats=None):
+    """Pile of folded towels or clothes."""
+    for i in range(n):
+        box(x - w / 2, x + w / 2, y - d / 2, y + d / 2, z + i * 0.052, z + i * 0.052 + 0.05,
+            R.choice(mats or (LINEN, LINEN, DUVET, ACC)), 0.018, p, 0.04)
+
+
+def toilet(x, y, z, rot):
+    """Wall-hung toilet in front of a boxed-in cistern ledge. (x, y) is on the wall, which is at local +Y."""
+    g = G(x, y, z, rot)
+    box(-0.5, 0.5, -0.18, 0, 0, 1.12, STONE, 0, g)
+    box(-0.52, 0.52, -0.2, 0, 1.12, 1.15, MARBLE, 0.004, g)
+    box(-0.19, 0.19, -0.74, -0.18, 0.1, 0.42, PORCELAIN, 0.09, g, 0.12)
+    cx, cy, _ = at(g, 0, -0.46)
+    sideways = round(rot / 90) % 2  # the lid's long axis follows the way the toilet faces
+    prism(oval(cx, cy, *((0.27, 0.185) if sideways else (0.185, 0.27))), z + 0.415, z + 0.45, PORCELAIN)
+    box(-0.12, 0.12, -0.19, -0.18, 0.86, 1.0, CHROME, 0, g)
+    for dx, dz in ((0.24, 0), (0.36, 0), (0.3, 0.105)):  # spare rolls
+        rod((dx, -0.09, 1.15 + dz), (dx, -0.09, 1.25 + dz), 0.055, LINEN, g, seg=16)
+    bottle(-0.32, -0.09, 1.15, 0.15, 0.032, BOTTLES[0], False, g)  # reed diffuser
+    for a in (-0.3, 0, 0.3):
+        rod((-0.32, -0.09, 1.28), (-0.32 + a * 0.3, -0.07, 1.52), 0.002, BARK, g, seg=4)
+    rod((0.42, -0.3, 0), (0.42, -0.3, 0.36), 0.045, BLACK, g, seg=14)   # brush
+    rod((0.42, -0.3, 0.36), (0.42, -0.3, 0.48), 0.008, CHROME, g, seg=6)
+
+
+def vanity(x, y, z, rot, w=1.2):
+    """Floating vanity with vessel basins, taps, a backlit mirror and toiletries. The wall is at local +Y."""
+    g = G(x, y, z, rot)
+    box(-w / 2, w / 2, -0.5, 0, 0.45, 0.8, WOODF, 0.004, g)
+    box(-w / 2 - 0.01, w / 2 + 0.01, -0.52, 0, 0.8, 0.84, MARBLE, 0.004, g)
+    box(-w / 2 + 0.03, w / 2 - 0.03, -0.012, 0, 1.03, 1.97, LED, 0, g)        # halo behind the mirror
+    box(-w / 2 + 0.06, w / 2 - 0.06, -0.03, -0.012, 1.06, 1.94, MIRROR, 0, g)
+    n = 2 if w > 1.5 else 1
+    for i in range(n):
+        bx = (i - (n - 1) / 2) * w / 2
+        rod((bx, -0.27, 0.84), (bx, -0.27, 0.97), 0.15, PORCELAIN, g, r2=0.2, seg=32, cap=False)
+        rod((bx, -0.27, 0.84), (bx, -0.27, 0.846), 0.15, PORCELAIN, g, seg=32)
+        rod((bx, -0.06, 0.84), (bx, -0.06, 1.1), 0.012, CHROME, g, seg=10)
+        rod((bx, -0.06, 1.1), (bx, -0.2, 1.1), 0.012, CHROME, g, seg=10)
+        bottle(bx + 0.28, -0.1, 0.84, 0.19, 0.032, None, True, g)
+        bottle(bx + 0.36, -0.2, 0.84, 0.15, 0.028, None, True, g)
+    cx = -w / 2 + 0.12
+    rod((cx, -0.1, 0.84), (cx, -0.1, 0.94), 0.035, PORCELAIN, g, seg=14, cap=False)   # toothbrush cup
+    for k, m in enumerate((CLOTHES[7], CLOTHES[6])):
+        rod((cx, -0.1, 0.85), (cx + 0.03 * (k * 2 - 1), -0.1, 1.03), 0.004, m, g, seg=6)
+    stack(-w / 2 + 0.2, -0.36, 0.84, 2, g, 0.26, 0.18)
+    box(-w / 2 + 0.05, w / 2 - 0.05, -0.46, -0.04, 0.2, 0.225, WOODF, 0, g)           # open shelf under the unit
+    stack(w / 4, -0.25, 0.225, 3, g)
+    model("wicker_basket_01", *at(g, -w / 4, -0.25, 0.225), math.degrees(g.rotation_euler.z))
+
+
+def shoes(x0, x1, z, p):
+    xx = x0 + 0.08
+    while xx < x1 - 0.2:
+        m = R.choice((BLACK, LEATHER, LINEN, CLOTHES[3]))
+        for dx in (0, 0.11):
+            box(xx + dx - 0.045, xx + dx + 0.045, -0.2, 0.07, z, z + 0.075, m, 0.03, p, 0.1)
+            box(xx + dx - 0.04, xx + dx + 0.04, -0.02, 0.07, z + 0.05, z + 0.11, m, 0.02, p)
+        xx += 0.3
+
+
+def wardrobe(x, y, z, rot, w, h=2.5, d=0.6):
+    """Open wardrobe, back against local +Y: rails of hanging clothes, folded stacks, shoes and baskets."""
+    g = G(x, y, z, rot)
+    box(-w / 2, w / 2, d / 2 - 0.02, d / 2, 0, h, WOODF, 0, g)
+    box(-w / 2, w / 2, -d / 2, d / 2, 0, 0.08, WOODF, 0, g)
+    box(-w / 2, w / 2, -d / 2, d / 2, h - 0.04, h, WOODF, 0, g)
+    box(-w / 2 + 0.04, w / 2 - 0.04, -d / 2 + 0.03, -d / 2 + 0.05, h - 0.065, h - 0.045, LED, 0, g)
+    n = max(1, round(w / 0.95))
+    for i in range(n + 1):
+        xx = -w / 2 + i * w / n
+        box(xx - 0.012, xx + 0.012, -d / 2, d / 2, 0, h, WOODF, 0, g)
+    for i in range(n):
+        x0, x1 = -w / 2 + i * w / n + 0.03, -w / 2 + (i + 1) * w / n - 0.03
+        kind = ("long", "shelves", "double")[i % 3]
+        if kind == "shelves":
+            for k, zz in enumerate((0.42, 0.8, 1.18, 1.56, 1.94)):
+                box(x0 - 0.02, x1 + 0.02, -d / 2 + 0.02, d / 2 - 0.02, zz - 0.025, zz, WOODF, 0, g)
+                if k < 3:
+                    for sx in (x0 + 0.2, x1 - 0.2):
+                        stack(sx, 0.02, zz, R.randint(2, 5), g, 0.3, 0.4, CLOTHES)
+                elif k == 3:
+                    model("wicker_basket_02", *at(g, (x0 + x1) / 2 - 0.2, 0, zz), math.degrees(g.rotation_euler.z))
+                    model("fishermans_hat", *at(g, (x0 + x1) / 2 + 0.22, 0, zz + 0.03), R.uniform(0, 360))
+                else:
+                    for sx in (x0 + 0.2, x1 - 0.2):  # storage boxes
+                        box(sx - 0.17, sx + 0.17, -0.2, 0.18, zz, zz + 0.22, R.choice((LINEN, CLOTHES[8], CLOTHES[2])), 0.01, g)
+        else:
+            rails = ((h - 0.2, 1.15, 1.4),) if kind == "long" else ((h - 0.2, 0.72, 0.85), (h - 1.22, 0.62, 0.75))
+            for top, lmin, lmax in rails:
+                rod((x0, 0, top), (x1, 0, top), 0.012, CHROME, g, seg=8)
+                xx = x0 + 0.06
+                while xx < x1 - 0.05:
+                    c = box(xx - 0.02, xx + 0.02, -0.23, 0.2, top - 0.06 - R.uniform(lmin, lmax), top - 0.06, R.choice(CLOTHES), 0.016, g, 0.02)
+                    c.rotation_euler.z = R.uniform(-0.1, 0.1)
+                    xx += R.uniform(0.055, 0.085)
+        if kind != "double":
+            shoes(x0, x1, 0.08, g)
+
+
+def curtain(a, b, z0, z1, folds=7, amp=0.05):
+    """Sheer curtain drawn back between two points on the plan: a pleated sheet."""
+    (x0, y0), (x1, y1) = a, b
+    length = math.hypot(x1 - x0, y1 - y0)
+    nx, ny = (y0 - y1) / length, (x1 - x0) / length
+    bm = bmesh.new()
+    n = folds * 8
+    lo, hi = [], []
+    for i in range(n + 1):
+        t = i / n
+        off = amp * math.sin(t * folds * math.tau)
+        px, py = x0 + (x1 - x0) * t, y0 + (y1 - y0) * t
+        lo.append(bm.verts.new((px + nx * off, py + ny * off, z0 + 0.02)))
+        hi.append(bm.verts.new((px + nx * off * 0.6, py + ny * off * 0.6, z1)))
+    for i in range(n):
+        bm.faces.new((lo[i], lo[i + 1], hi[i + 1], hi[i])).smooth = True
+    return obj("curtain", bm, SHEER)
 
 
 # ---------------------------------------------------------------- site
@@ -927,30 +1078,56 @@ for level, ((x0, x1, y0, y1), c) in enumerate(zip((L1, L2, L3), CL)):
             if level == 2 or math.hypot(x - STAIR[0], y - STAIR[1]) > SR + 0.4:
                 rod((x, y, c - 0.015), (x, y, c + 0.01), 0.06, DOWN, seg=12)
 
-# ---------------------------------------------------------------- level 1: living, dining, kitchen
+# ---------------------------------------------------------------- level 1: living, dining, kitchen, powder room
 z = FL[0]
 box(-6.5, -1.2, -3.2, 1.4, z, z + 0.015, RUG)
 sofa(-4.1, 0.7, z, 0, 3.6, chaise=-1)
 sofa(-1.75, -1.3, z, -90, 2.3)
 model("mid_century_lounge_chair", -5.6, -2.6, z, 135)
 model("mid_century_lounge_chair", -3.3, -2.9, z, 200)
+model("side_table_01", -4.5, -3.2, z, 10)
+model("standing_picture_frame_02", -4.5, -3.2, z + 0.55, -80)
 model("coffee_table_round_01", -4.0, -1.1, z)
 model("ceramic_vase_02", -4.2, -1.0, z + 0.49)
 model("potted_plant_04", -3.75, -1.3, z + 0.49)
-model("modern_wooden_cabinet", -4.1, 1.5, z, 180)
-model("ceramic_vase_01", -4.9, 1.5, z + 0.68)
-model("potted_plant_02", -3.3, 1.5, z + 0.68, 30, 0.8)
+model("modern_wooden_cabinet", -4.1, 1.5, z, 180)          # sideboard behind the sofa
+model("ceramic_vase_01", -5.1, 1.5, z + 0.68)
+model("book_encyclopedia_set_01", -4.25, 1.5, z + 0.68, 180)
+model("marble_bust_01", -3.85, 1.5, z + 0.68, 160)
+model("potted_plant_02", -3.25, 1.5, z + 0.68, 30, 0.8)
 lamp(-6.4, 1.3, z)
 model("potted_plant_01", -6.3, -3.4, z, 0, 1.4)
 shelf(-4.9, 4.72, z, 0, 3.6, 2.7)
+curtain((-6.85, -3.82), (-5.95, -3.82), z, CL[0])
+curtain((3.0, -3.82), (3.9, -3.82), z, CL[0])
+curtain((-6.82, 3.95), (-6.82, 4.85), z, CL[0])
+# dining, laid for six
 table(0.9, -1.7, z, 0, 2.6, 1.05, 0.75, WOODF, BLACK)
+box(0.0, 1.8, -1.81, -1.59, z + 0.75, z + 0.754, LINEN)
+model("brass_vase_01", 0.9, -1.7, z + 0.754)
+model("jug_01", 1.5, -1.7, z + 0.754, 40)
 for x in (0.1, 0.9, 1.7):
     model("dining_chair_02", x, -2.3, z, 180)
     model("dining_chair_02", x, -1.1, z, 0)
     pendant(x, -1.7, z, CL[0])
+    for y, side in ((-2.0, 1), (-1.4, -1)):
+        rod((x, y, z + 0.75), (x, y, z + 0.762), 0.135, PORCELAIN, seg=28)
+        rod((x + 0.19, y + 0.1 * side, z + 0.75), (x + 0.19, y + 0.1 * side, z + 0.87), 0.03, GLASS, r2=0.038, seg=14, cap=False)
+# kitchen
 box(-2.0, 1.4, 1.9, 2.8, z, z + 0.88, CAB)
 box(-2.1, 1.5, 1.8, 2.9, z + 0.88, z + 0.94, MARBLE, 0.005)
 box(-1.0, -0.3, 2.1, 2.6, z + 0.94, z + 0.945, BLACK)   # hob
+top = z + 0.94
+model("pot_enamel_01", -0.65, 2.35, top + 0.005, 20)
+model("wooden_bowl_01", 0.6, 2.3, top)
+for dx, dy, dz in ((0, 0, 0.06), (0.07, 0.03, 0.055), (-0.06, 0.04, 0.055), (0.02, -0.07, 0.055), (0.01, 0.01, 0.11)):
+    model("lemon", 0.6 + dx, 2.3 + dy, top + dz, R.uniform(0, 360))
+model("wooden_cutting_board", -1.55, 2.3, top, 80)
+model("croissant", -1.6, 2.22, top + 0.04, 30)
+model("croissant", -1.5, 2.42, top + 0.04, 100)
+rod((1.1, 2.4, top), (1.1, 2.4, top + 0.1), 0.03, PORCELAIN, seg=12)   # cake stand
+rod((1.1, 2.4, top + 0.1), (1.1, 2.4, top + 0.112), 0.15, PORCELAIN, seg=28)
+model("carrot_cake", 1.1, 2.4, top + 0.112)
 for x in (-1.3, -0.3, 0.7):
     stool(x, 1.5, z)
 box(-3, 2.8, 4.3, 4.88, z, z + 0.88, CAB)
@@ -958,18 +1135,46 @@ box(-3, 2.8, 4.26, 4.88, z + 0.88, z + 0.92, MARBLE)
 box(0.5, 1.2, 4.4, 4.78, z + 0.92, z + 0.924, STEEL)    # sink
 rod((0.85, 4.8, z + 0.92), (0.85, 4.8, z + 1.25), 0.012, STEEL, seg=8)
 rod((0.85, 4.8, z + 1.25), (0.85, 4.62, z + 1.25), 0.012, STEEL, seg=8)
+model("tea_set_01", -0.6, 4.55, z + 0.92)
+model("jug_01", 0.2, 4.62, z + 0.92, 200)
+bottle(1.45, 4.7, z + 0.92, 0.24, 0.035, BOTTLES[0], False)
+bottle(1.56, 4.72, z + 0.92, 0.2, 0.03, BOTTLES[1], True)
+model("wine_bottles_01", 1.9, 4.62, z + 0.92)
 box(-3, -1.5, 4.3, 4.88, z + 0.92, z + 2.5, CAB)
 box(-1.5, 2.8, 4.5, 4.88, z + 1.5, z + 2.5, CAB)
 box(-1.5, 2.8, 4.52, 4.56, z + 1.47, z + 1.5, LED)
+# entry: console, bench, coats and boots
 table(6.6, -3.3, z, 0, 1.6, 0.4, 0.8, WOODF, BLACK)
 model("ceramic_vase_01", 6.2, -3.3, z + 0.8)
+model("fishermans_hat", 7.0, -3.3, z + 0.83, 30)
 model("hanging_picture_frame_01", 6.6, -3.87, z + 1.65, 180, 1.3)
-model("potted_plant_01", 7.3, -2.5, z, 40, 1.3)
+model("potted_plant_01", 7.45, -2.5, z, 40, 1.3)
+box(7.35, 7.85, -1.2, 0.4, z + 0.36, z + 0.46, LEATHER, 0.03, None, 0.03)
+for y in (-1.05, 0.25):
+    box(7.4, 7.8, y - 0.02, y + 0.02, z, z + 0.36, BLACK)
+box(7.84, 7.88, -1.2, 0.4, z + 1.62, z + 1.7, WOODF)
+for i, y in enumerate((-0.95, -0.4, 0.15)):
+    rod((7.84, y, z + 1.66), (7.76, y, z + 1.66), 0.012, CHROME, seg=8)
+    box(7.68, 7.8, y - 0.24, y + 0.24, z + 1.66 - (1.0, 0.85, 1.1)[i], z + 1.66, CLOTHES[(1, 3, 5)[i]], 0.03, None, 0.02)
+model("rubber_boots", 7.6, 0.95, z, 90)
+rod((7.6, -1.6, z), (7.6, -1.6, z + 0.5), 0.11, BLACK, r2=0.13, cap=False)     # umbrella stand
+rod((7.6, -1.6, z + 0.02), (7.66, -1.56, z + 0.95), 0.012, CLOTHES[1], seg=8)
+rod((7.6, -1.6, z + 0.02), (7.54, -1.66, z + 0.9), 0.012, CLOTHES[9], seg=8)
+# powder room behind the hall
+wall((6, 1.55), (6.35, 1.55), 0.15, 3.55, STONE, 0.12)
+wall((7.25, 1.55), (8, 1.55), 0.15, 3.55, STONE, 0.12)
+wall((6.35, 1.55), (7.25, 1.55), z + 2.2, 3.55, STONE, 0.12)
+toilet(7.05, 4.88, z, 0)
+vanity(7.88, 2.9, z, -90, 0.9)
+model("hanging_picture_frame_02", 6.01, 3.2, z + 1.5, 90)
+box(7.84, 7.87, 3.6, 3.9, z + 0.75, z + 1.25, LINEN, 0.008)   # hand towel
+rod((7.88, 3.75, z + 1.27), (7.82, 3.75, z + 1.27), 0.01, CHROME, seg=8)
+box(6.75, 7.3, 2.55, 3.25, z, z + 0.012, RUG)
 for loc, size, power in (((-4, -0.5), (4, 3), 500), ((0.9, -1.7), (2.5, 1), 200), ((-0.3, 2.6), (3, 1.5), 350),
-                         ((6.5, -2.6), (1.5, 1.5), 150), ((-4.9, 3.6), (3, 1), 200)):
+                         ((6.5, -2.6), (1.5, 1.5), 150), ((-4.9, 3.6), (3, 1), 200), ((7.0, 3.2), (1.2, 1.6), 140)):
     room_light(loc, CL[0], power, size)
 
-# ---------------------------------------------------------------- level 2: bedroom suite, landing lounge, study
+# ---------------------------------------------------------------- level 2: bedroom suite with ensuite and wardrobe, landing lounge, study
 z = FL[1]
 bed(-6, -0.2, z, 0)
 box(-8.4, -3.6, -3.0, 0.5, z, z + 0.015, RUG)
@@ -980,43 +1185,121 @@ model("side_table_01", -7.3, -6.0, z, 20)
 model("potted_plant_04", -7.3, -6.0, z + 0.55, 0, 1.3)
 lamp(-9.3, -6.3, z)
 sofa(-4.4, -6.1, z, 180, 2.2)
-box(-9.6, -1.4, 3.75, 4.35, z, z + 2.6, WOODF)
+model("throw_pillows_01", -4.4, -5.98, z + 0.46, 180, 0.85)
 model("drawer_cabinet", -1.33, -3.6, z, -90)
+box(-1.12, -1.09, -5.65, -4.85, z + 0.05, z + 1.95, MIRROR)       # full-length mirror on the partition
+box(-1.1, -1.085, -5.68, -4.82, z + 0.02, z + 1.98, WOODF)
 model("potted_plant_01", -1.8, -6.2, z, 0, 1.4)
+curtain((-9.85, -6.82), (-8.95, -6.82), z, CL[1])
+curtain((-2.05, -6.82), (-1.15, -6.82), z, CL[1])
+curtain((-9.82, -0.1), (-9.82, 0.8), z, CL[1])
+# ensuite bathroom
+wall((-9.9, 1.2), (-7.2, 1.2), 4.0, 7.0, STONE, 0.12)
+wall((-7.2, 1.2), (-7.2, 1.7), 4.0, 7.0, STONE, 0.12)
+wall((-7.2, 2.6), (-7.2, 4.4), 4.0, 7.0, STONE, 0.12)
+wall((-7.2, 1.7), (-7.2, 2.6), z + 2.2, 7.0, STONE, 0.12)
+wall((-9.86, 1.2), (-9.86, 4.4), 4.0, 7.0, STONE, 0.1)            # privacy wall inside the glazing
+box(-9.8, -7.26, 1.26, 4.38, z, z + 0.012, FLOOR1)
+toilet(-9.25, 1.26, z, 180)
+vanity(-8.0, 4.38, z, 0, 1.3)
+box(-9.8, -8.9, 2.75, 4.38, z + 0.012, z + 0.03, STONE)           # walk-in shower
+box(-8.91, -8.89, 2.75, 3.85, z, z + 2.1, GLASS)
+rod((-9.8, 3.55, z + 2.25), (-9.35, 3.55, z + 2.25), 0.012, CHROME, seg=8)
+rod((-9.35, 3.55, z + 2.2), (-9.35, 3.55, z + 2.22), 0.14, CHROME, seg=28)
+box(-9.8, -9.66, 3.1, 3.6, z + 1.1, z + 1.125, MARBLE)
+for i in range(3):
+    bottle(-9.73, 3.2 + i * 0.13, z + 1.125, 0.2 - i * 0.02, 0.03, BOTTLES[i], i < 2)
+rod((-7.3, 2.95, z + 1.05), (-7.3, 3.75, z + 1.05), 0.012, CHROME, seg=8)   # towel rail
+box(-7.325, -7.275, 3.0, 3.35, z + 0.5, z + 1.07, LINEN, 0.012)
+box(-7.325, -7.275, 3.4, 3.7, z + 0.62, z + 1.07, DUVET, 0.012)
+box(-8.6, -7.5, 3.0, 3.7, z + 0.012, z + 0.024, RUG)
+# walk-in wardrobe along the back wall
+wardrobe(-4.2, 4.08, z, 0, 5.4)
+box(-6.6, -1.8, 2.2, 3.2, z, z + 0.015, RUG)
+model("Ottoman_01", -4.2, 2.7, z)
+# landing lounge and study
 box(-0.3, 2.9, -4.6, -1.4, z, z + 0.015, RUG)
 model("modern_arm_chair_01", 0.2, -3.0, z, 90)
 model("modern_arm_chair_01", 2.4, -3.0, z, -90)
 model("modern_coffee_table_01", 1.3, -3.0, z)
-model("ceramic_vase_02", 1.3, -2.7, z + 0.39)
+model("chess_set", 1.3, -3.0, z + 0.39, 0, 0.8)
+lamp(3.0, -4.4, z)
 table(1.4, -6.3, z, 0, 1.9, 0.7, 0.75, WOODF, BLACK)
 model("dining_chair_02", 1.4, -5.75, z, 0)
+box(1.2, 1.52, -6.42, -6.2, z + 0.75, z + 0.765, STEEL)           # laptop
+box(1.2, 1.52, -6.44, -6.43, z + 0.765, z + 0.975, LAPTOP).rotation_euler.x = 0.25
+rod((2.1, -6.45, z + 0.75), (2.1, -6.45, z + 0.76), 0.07, BLACK, seg=16)   # desk lamp
+rod((2.1, -6.45, z + 0.76), (2.1, -6.45, z + 1.1), 0.008, BLACK, seg=6)
+ball(2.1, -6.45, z + 1.16, 0.07, LAMP)
+for i in range(4):
+    box(0.6, 0.84, -6.5, -6.34, z + 0.75 + i * 0.03, z + 0.776 + i * 0.03, R.choice(BOOKS))
+rod((0.98, -6.22, z + 0.75), (0.98, -6.22, z + 0.84), 0.04, PORCELAIN, seg=14, cap=False)
 shelf(-0.76, -0.5, z, 90, 3.0, 2.4)
+model("Ukulele_01", -0.82, 1.25, z, 90).rotation_euler.x = -0.16
 model("steel_frame_shelves_03", 5.5, -5.3, z, -90)
-model("mid_century_lounge_chair", 1.5, 3.5, z, 30)
-model("potted_plant_02", 2.4, 3.9, z, 0, 1.2)
-for loc, size, power in (((-6, -2.5), (3.5, 3), 350), ((-5.5, 2.8), (5, 1), 180), ((1.5, -3.5), (4, 3), 320), ((1.5, 2.5), (3, 2), 160)):
+model("wall_clock", 5.87, -2.6, z + 1.9, -90)
+sofa(1.0, 3.88, z, 0, 2.2)
+model("throw_pillows_01", 1.0, 3.76, z + 0.46, 0, 0.85)
+model("side_table_01", 2.45, 3.95, z)
+rod((2.45, 3.95, z + 0.55), (2.45, 3.95, z + 0.6), 0.05, BLACK)
+ball(2.45, 3.95, z + 0.71, 0.11, LAMP)
+model("potted_plant_02", -0.55, 4.0, z, 0, 1.2)
+curtain((-0.85, -6.82), (0.05, -6.82), z, CL[1])
+curtain((4.95, -6.82), (5.85, -6.82), z, CL[1])
+for loc, size, power in (((-6, -2.5), (3.5, 3), 350), ((-4.5, 2.8), (4, 1), 180), ((1.5, -3.5), (4, 3), 320), ((1.5, 2.5), (3, 2), 160),
+                         ((-8.5, 2.8), (1.5, 2), 160)):
     room_light(loc, CL[1], power, size)
 
-# ---------------------------------------------------------------- level 3: master suite and roof terrace
+# ---------------------------------------------------------------- level 3: master suite, bathroom and roof terrace
 z = FL[2]
 bed(-0.6, -1.0, z, 0)
 box(-2.5, 1.3, -3.1, 0.3, z, z + 0.015, RUG)
 model("Ottoman_01", -0.6, -2.7, z)
 lamp(1.9, -3.0, z)
 model("potted_plant_01", -2.5, -3.0, z, 0, 1.4)
+curtain((-2.85, -3.32), (-1.95, -3.32), z, CL[2])
+curtain((7.95, -3.32), (8.85, -3.32), z, CL[2])
+curtain((-2.82, 4.4), (-2.82, 5.3), z, CL[2])
+# media unit on the back of the bed wall, facing the lounge
+model("modern_wooden_cabinet", -0.6, 0.63, z, 180)
+box(-1.35, 0.15, 0.56, 0.6, z + 0.8, z + 1.64, SCREEN)
+box(-0.8, -0.4, 0.5, 0.7, z + 0.68, z + 0.7, BLACK)
+box(-0.63, -0.57, 0.56, 0.62, z + 0.7, z + 0.82, BLACK)
+model("ceramic_vase_04", 0.4, 0.63, z + 0.68)
+model("standing_picture_frame_02", -1.62, 0.62, z + 0.68, 110)
 box(-2.5, 2.3, 1.7, 5.2, z, z + 0.015, RUG)
 sofa(-0.2, 4.75, z, 0, 3.0)
+model("throw_pillows_01", -0.2, 4.63, z + 0.46, 0, 0.85)
 model("coffee_table_round_01", -0.2, 3.2, z, 0, 0.8)
-model("ceramic_vase_01", -0.2, 3.2, z + 0.39)
+model("ceramic_vase_03", -0.35, 3.3, z + 0.39)
+model("wooden_bowl_01", 0.0, 3.1, z + 0.39, 0, 0.8)
 model("mid_century_lounge_chair", -2.0, 2.6, z, 135)
 model("mid_century_lounge_chair", 1.7, 2.6, z, 225)
 pendant(-0.2, 3.2, z, CL[2], 1.9)
 model("drawer_cabinet", 2.35, 5.12, z)
 model("potted_plant_02", -2.5, 4.8, z, 0, 1.2)
-prism(oval(7.5, 3.5, 0.42, 0.88), z, z + 0.58, MARBLE, oval(7.5, 3.5, 0.34, 0.8))
-prism(oval(7.5, 3.5, 0.35, 0.81), z, z + 0.12, MARBLE)
-rod((8.1, 3.5, z), (8.1, 3.5, z + 0.9), 0.02, FRAME, seg=8)
-for loc, size, power in (((-0.6, -1.2), (3, 3), 300), ((7.2, -1.5), (2, 2.5), 200), ((7.5, 3.5), (1.5, 2), 120), ((-0.2, 3.4), (3, 2), 220)):
+# master bathroom, enclosed beside the lift
+wall((6, 1.5), (6.3, 1.5), 7.5, 10.5, STONE, 0.12)
+wall((7.2, 1.5), (9, 1.5), 7.5, 10.5, STONE, 0.12)
+wall((6.3, 1.5), (7.2, 1.5), z + 2.2, 10.5, STONE, 0.12)
+box(6.0, 8.88, 1.56, 5.38, z, z + 0.012, FLOOR1)
+prism(oval(7.4, 4.7, 0.88, 0.42), z, z + 0.58, PORCELAIN, oval(7.4, 4.7, 0.8, 0.34))
+prism(oval(7.4, 4.7, 0.81, 0.35), z, z + 0.12, PORCELAIN)
+rod((8.42, 4.7, z), (8.42, 4.7, z + 0.95), 0.02, CHROME, seg=8)
+rod((8.42, 4.7, z + 0.95), (8.15, 4.7, z + 0.95), 0.02, CHROME, seg=8)
+box(7.28, 7.52, 4.26, 5.14, z + 0.585, z + 0.6, WOODF)            # tray across the bath
+bottle(7.4, 4.95, z + 0.6, 0.17, 0.03, BOTTLES[0], True)
+rod((7.4, 4.45, z + 0.6), (7.4, 4.45, z + 0.68), 0.035, LINEN, seg=14)   # candle
+ball(7.4, 4.45, z + 0.695, 0.012, LAMP)
+vanity(8.88, 2.9, z, -90, 1.8)
+toilet(6.0, 3.3, z, 90)
+rod((7.5, 1.6, z + 1.05), (8.6, 1.6, z + 1.05), 0.012, CHROME, seg=8)   # towel rail
+box(7.6, 8.0, 1.575, 1.625, z + 0.5, z + 1.07, LINEN, 0.012)
+box(8.1, 8.5, 1.575, 1.625, z + 0.62, z + 1.07, ACC, 0.012)
+box(7.0, 8.2, 2.3, 3.5, z + 0.012, z + 0.024, RUG)
+model("wicker_basket_02", 8.55, 4.05, z + 0.012)
+wardrobe(8.05, 1.14, z, 0, 1.6)                                    # just outside the bathroom
+for loc, size, power in (((-0.6, -1.2), (3, 3), 300), ((7.2, -1.5), (2, 2.5), 200), ((7.5, 3.3), (1.5, 2), 160), ((-0.2, 3.4), (3, 2), 220)):
     room_light(loc, CL[2], power, size)
 
 z = 7.4
@@ -1170,23 +1453,25 @@ SPOTS = [  # id, label, area, x, y, floor height, exposure
     ("veranda", "Outdoor dining", "Outside", -8.4, -3.4, 0.15, 0.3),
     ("entrance", "Front door", "Outside", 5.8, -6.2, 0.15, 0.3),
     ("hall", "Entry hall", "Level 1", 6.9, -1.8, FL[0], -1.0),
+    ("powder", "Powder room", "Level 1", 6.85, 2.6, FL[0], -1.0),
     ("stair-1", "Dining and stair", "Level 1", 2.5, -0.2, FL[0], -1.0),
     ("living", "Living room", "Level 1", -2.9, -0.7, FL[0], -1.0),
     ("kitchen", "Kitchen", "Level 1", -0.3, 3.55, FL[0], -1.0),
     ("library", "Library corner", "Level 1", -5.6, 3.1, FL[0], -1.0),
     ("landing-2", "Landing lounge", "Level 2", 2.2, -0.5, FL[1], -1.0),
     ("study", "Study", "Level 2", 1.3, -4.6, FL[1], -1.0),
-    ("dressing", "Dressing area", "Level 2", -2.6, 2.3, FL[1], -1.0),
+    ("dressing", "Walk-in wardrobe", "Level 2", -2.6, 2.3, FL[1], -1.0),
+    ("ensuite", "Ensuite bathroom", "Level 2", -8.1, 2.3, FL[1], -1.0),
     ("bedroom", "Bedroom suite", "Level 2", -3.0, -2.6, FL[1], -1.0),
     ("landing-3", "Top of the stair", "Level 3", 2.3, -0.5, FL[2], -1.0),
     ("master", "Master suite", "Level 3", 1.3, -2.3, FL[2], -1.0),
     ("lounge-3", "Sky lounge", "Level 3", -0.2, 1.5, FL[2], -1.0),
-    ("bath", "Bath", "Level 3", 7.5, 0.7, FL[2], -1.0),
+    ("bath", "Master bathroom", "Level 3", 7.3, 2.4, FL[2], -1.0),
     ("terrace", "Roof terrace", "Level 3", -5.0, -0.5, 7.44, 0.0),
     ("terrace-edge", "Terrace edge", "Level 3", -6.0, -6.9, 7.44, 0.3),
 ]
 PATHS = [("garden", "pool"), ("pool", "fire"), ("pool", "veranda"), ("pool", "entrance"), ("fire", "entrance"),
-         ("entrance", "hall"), ("veranda", "living"), ("hall", "stair-1"), ("stair-1", "living"), ("stair-1", "kitchen"),
+         ("entrance", "hall"), ("hall", "powder"), ("dressing", "ensuite"), ("veranda", "living"), ("hall", "stair-1"), ("stair-1", "living"), ("stair-1", "kitchen"),
          ("living", "kitchen"), ("living", "library"), ("kitchen", "library"), ("stair-1", "landing-2"),
          ("landing-2", "study"), ("landing-2", "dressing"), ("dressing", "bedroom"), ("landing-2", "landing-3"),
          ("landing-3", "master"), ("landing-3", "lounge-3"), ("landing-3", "bath"), ("master", "lounge-3"),

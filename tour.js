@@ -83,7 +83,21 @@ const TOUR = [
   ],
   "links": [
    "entrance",
+   "powder",
    "stair-1"
+  ]
+ },
+ {
+  "id": "powder",
+  "name": "Powder room",
+  "area": "Level 1",
+  "pos": [
+   6.85,
+   2.6,
+   1.72
+  ],
+  "links": [
+   "hall"
   ]
  },
  {
@@ -178,7 +192,7 @@ const TOUR = [
  },
  {
   "id": "dressing",
-  "name": "Dressing area",
+  "name": "Walk-in wardrobe",
   "area": "Level 2",
   "pos": [
    -2.6,
@@ -186,8 +200,22 @@ const TOUR = [
    5.57
   ],
   "links": [
+   "ensuite",
    "landing-2",
    "bedroom"
+  ]
+ },
+ {
+  "id": "ensuite",
+  "name": "Ensuite bathroom",
+  "area": "Level 2",
+  "pos": [
+   -8.1,
+   2.3,
+   5.57
+  ],
+  "links": [
+   "dressing"
   ]
  },
  {
@@ -250,11 +278,11 @@ const TOUR = [
  },
  {
   "id": "bath",
-  "name": "Bath",
+  "name": "Master bathroom",
   "area": "Level 3",
   "pos": [
-   7.5,
-   0.7,
+   7.3,
+   2.4,
    9.07
   ],
   "links": [
