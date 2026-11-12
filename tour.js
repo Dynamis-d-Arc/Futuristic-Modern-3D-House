@@ -54,7 +54,7 @@ const TOUR = [
   ],
   "links": [
    "pool",
-   "living"
+   "car"
   ]
  },
  {
@@ -105,14 +105,15 @@ const TOUR = [
   "name": "Dining and stair",
   "area": "Level 1",
   "pos": [
-   2.5,
-   -0.2,
+   2.75,
+   -0.35,
    1.72
   ],
   "links": [
    "hall",
    "living",
    "kitchen",
+   "garden-1",
    "landing-2"
   ]
  },
@@ -121,15 +122,13 @@ const TOUR = [
   "name": "Living room",
   "area": "Level 1",
   "pos": [
-   -2.9,
-   -0.7,
+   0.9,
+   -3.1,
    1.72
   ],
   "links": [
-   "veranda",
    "stair-1",
-   "kitchen",
-   "library"
+   "garden-1"
   ]
  },
  {
@@ -137,28 +136,57 @@ const TOUR = [
   "name": "Kitchen",
   "area": "Level 1",
   "pos": [
-   -0.3,
-   3.55,
+   0.6,
+   3.3,
    1.72
+  ],
+  "links": [
+   "stair-1"
+  ]
+ },
+ {
+  "id": "garden-1",
+  "name": "Indoor garden",
+  "area": "Level 1",
+  "pos": [
+   -2.0,
+   1.15,
+   1.89
   ],
   "links": [
    "stair-1",
    "living",
+   "car",
    "library"
   ]
  },
  {
-  "id": "library",
-  "name": "Library corner",
+  "id": "car",
+  "name": "Car gallery",
   "area": "Level 1",
   "pos": [
-   -5.6,
-   3.1,
+   -3.5,
+   -3.1,
    1.72
   ],
   "links": [
-   "living",
-   "kitchen"
+   "garden-1",
+   "library",
+   "veranda"
+  ]
+ },
+ {
+  "id": "library",
+  "name": "Garden lounge",
+  "area": "Level 1",
+  "pos": [
+   -3.9,
+   2.5,
+   1.72
+  ],
+  "links": [
+   "garden-1",
+   "car"
   ]
  },
  {
@@ -173,7 +201,7 @@ const TOUR = [
   "links": [
    "stair-1",
    "study",
-   "dressing",
+   "bridge-2",
    "landing-3"
   ]
  },
@@ -191,17 +219,31 @@ const TOUR = [
   ]
  },
  {
-  "id": "dressing",
-  "name": "Walk-in wardrobe",
+  "id": "bridge-2",
+  "name": "Garden bridge",
   "area": "Level 2",
   "pos": [
-   -2.6,
+   -1.9,
    2.3,
    5.57
   ],
   "links": [
-   "ensuite",
    "landing-2",
+   "dressing"
+  ]
+ },
+ {
+  "id": "dressing",
+  "name": "Walk-in wardrobe",
+  "area": "Level 2",
+  "pos": [
+   -4.4,
+   2.6,
+   5.57
+  ],
+  "links": [
+   "bridge-2",
+   "ensuite",
    "bedroom"
   ]
  },
@@ -223,8 +265,8 @@ const TOUR = [
   "name": "Bedroom suite",
   "area": "Level 2",
   "pos": [
-   -3.0,
-   -2.6,
+   -3.8,
+   -2.8,
    5.57
   ],
   "links": [
@@ -236,8 +278,8 @@ const TOUR = [
   "name": "Top of the stair",
   "area": "Level 3",
   "pos": [
-   2.3,
-   -0.5,
+   2.6,
+   -0.8,
    9.07
   ],
   "links": [
@@ -252,14 +294,13 @@ const TOUR = [
   "name": "Master suite",
   "area": "Level 3",
   "pos": [
-   1.3,
-   -2.3,
+   2.8,
+   -2.6,
    9.07
   ],
   "links": [
    "landing-3",
-   "lounge-3",
-   "terrace"
+   "lounge-3"
   ]
  },
  {
@@ -267,13 +308,28 @@ const TOUR = [
   "name": "Sky lounge",
   "area": "Level 3",
   "pos": [
-   -0.2,
-   1.5,
+   0.6,
+   1.8,
    9.07
   ],
   "links": [
    "landing-3",
-   "master"
+   "master",
+   "bridge-3"
+  ]
+ },
+ {
+  "id": "bridge-3",
+  "name": "Sky bridge",
+  "area": "Level 3",
+  "pos": [
+   -1.9,
+   2.3,
+   9.07
+  ],
+  "links": [
+   "lounge-3",
+   "terrace"
   ]
  },
  {
@@ -299,7 +355,7 @@ const TOUR = [
    8.99
   ],
   "links": [
-   "master",
+   "bridge-3",
    "terrace-edge"
   ]
  },
