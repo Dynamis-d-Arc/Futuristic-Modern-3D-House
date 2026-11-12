@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbis House · Walk-through</title>
+<style>
+  :root { --ink: #f5f0e8; --dim: rgba(245, 240, 232, .66); --glow: #ffdcaa; --panel: rgba(16, 18, 28, .55); --line: rgba(255, 255, 255, .18); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #0c0e16; color: var(--ink);
+    font: 15px/1.5 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab;
+    transition: opacity .28s; }
+  #view.dragging { cursor: grabbing; }
+  #view:focus { outline: none; }
+  #view:focus-visible { outline: 2px solid var(--glow); outline-offset: -4px; }
+  body.moving #view, body.moving #spots { opacity: 0; }
+  #spots { transition: opacity .28s; }
+
+  .frost { border: 1px solid var(--line); border-radius: 16px; background: var(--panel);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3); }
+  #where { position: fixed; left: clamp(12px, 3vw, 40px); top: clamp(12px, 3vh, 32px); padding: 12px 18px; pointer-events: none; }
+  #where small { display: block; font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--dim); }
+  #where b { font-size: 20px; font-weight: 600; }
+  #bar { position: fixed; left: 50%; bottom: clamp(12px, 3vh, 28px); transform: translateX(-50%); display: flex; gap: 10px;
+    align-items: center; padding: 10px 12px; max-width: calc(100vw - 24px); }
+  #bar a, #bar select { font: inherit; color: var(--ink); background: rgba(255, 255, 255, .06); border: 1px solid var(--line);
+    border-radius: 999px; padding: 8px 16px; text-decoration: none; white-space: nowrap; }
+  #bar select { max-width: 46vw; }
+  #bar option, #bar optgroup { color: #111; }
+  #bar a:hover, #bar select:hover { background: rgba(255, 255, 255, .14); }
+  #bar a:focus-visible, #bar select:focus-visible, .spot:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+  #hint { position: fixed; right: clamp(12px, 3vw, 40px); top: clamp(12px, 3vh, 32px); max-width: 260px; padding: 10px 14px;
+    font-size: 12px; color: var(--dim); pointer-events: none; }
+  #msg { position: fixed; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; }
+
+  /* A floor marker: a ring you click to walk there. */
+  .spot { position: fixed; left: 0; top: 0; width: 64px; height: 64px; margin: -32px 0 0 -32px; padding: 0; border: 0;
+    background: none; color: var(--ink); cursor: pointer; font: inherit; }
+  .spot i { position: absolute; inset: 8px; border-radius: 50%; border: 2px solid rgba(255, 236, 205, .95);
+    background: rgba(255, 220, 170, .22); box-shadow: 0 0 18px rgba(255, 220, 170, .55); transition: transform .15s, background .15s;
+    transform: scale(var(--s, 1)); }   /* far markers get a smaller ring, the label stays readable */
+  .spot:hover i, .spot:focus-visible i { transform: scale(calc(var(--s, 1) * 1.18)); background: rgba(255, 220, 170, .5); }
+  .spot span { position: absolute; left: 50%; bottom: 82%; transform: translateX(-50%); white-space: nowrap; padding: 3px 10px;
+    border-radius: 999px; background: rgba(12, 14, 22, .72); font-size: 13px; font-weight: 600; }
+  @media (max-width: 720px) { #hint { display: none; } #where b { font-size: 17px; } }
+  @media (prefers-reduced-motion: reduce) { #view, #spots, .spot i { transition: none; } }
+</style>
+</head>
+<body>
+
+<canvas id="view" tabindex="0" role="application" aria-label="360 degree view. Arrow keys look around, W or Enter walks forward."></canvas>
+<div id="spots"></div>
+
+<div id="where" class="frost" aria-live="polite"><small id="w-area"></small><b id="w-name"></b></div>
+<div id="hint" class="frost">Drag to look around · click a glowing ring to walk there · W or ↑ walks forward · scroll to zoom</div>
+<nav id="bar" class="frost" aria-label="Tour">
+  <a href="index.html">← House</a>
+  <select id="jump" aria-label="Jump to a room"></select>
+</nav>
+<div id="msg"></div>
+
+<script src="tour.js"></script>
+<script>
+// TOUR (tour.js, written by render.py): spots with their eye position in metres and the spots they link to.
+// Every panorama is rendered facing +Y, so +Y is the image centre and +X is a quarter turn to the right.
+const STAIR = [4.5, -0.3];           // where the spiral stair is, for the up and down markers
+const $ = id => document.getElementById(id);
+const canvas = $("view"), spotsEl = $("spots");
+const byId = Object.fromEntries(TOUR.map(s => [s.id, s]));
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let cur = null, heading = 0, pitch = 0, fov = 70 * Math.PI / 180, dirty = true, marks = [];
+
+function fail(text) { $("msg").style.display = "grid"; $("msg").textContent = text; }
+
+const gl = canvas.getContext("webgl", { antialias: false });
+if (!gl) { fail("This walk-through needs WebGL, which this browser does not provide."); throw new Error("no WebGL"); }
+const shader = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+const prog = gl.createProgram();
+gl.attachShader(prog, shader(gl.VERTEX_SHADER, "attribute vec2 p; void main() { gl_Position = vec4(p, 0., 1.); }"));
+gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, `
+  precision highp float;
+  uniform sampler2D pano; uniform vec2 res; uniform float heading, pitch, f;
+  void main() {
+    vec2 s = (gl_FragCoord.xy - .5 * res) / (.5 * res.y);
+    vec3 d = normalize(vec3(s, f));                                   // x right, y up, z forward
+    d = vec3(d.x, d.y * cos(pitch) + d.z * sin(pitch), -d.y * sin(pitch) + d.z * cos(pitch));
+    vec3 w = vec3(d.x * cos(heading) + d.z * sin(heading), -d.x * sin(heading) + d.z * cos(heading), d.y);
+    gl_FragColor = texture2D(pano, vec2(.5 + atan(w.x, w.y) / 6.28318531, .5 - asin(clamp(w.z, -1., 1.)) / 3.14159265));
+  }`));
+gl.linkProgram(prog);
+gl.useProgram(prog);
+gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);   // one triangle covering the screen
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);   // no mipmaps: they draw a seam where the image wraps
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+const U = n => gl.getUniformLocation(prog, n);
+
+// Where a world direction (from the eye) lands on screen, or null when it is behind the viewer.
+function project(v) {
+  const sh = Math.sin(heading), ch = Math.cos(heading), sp = Math.sin(pitch), cp = Math.cos(pitch);
+  const x = v[0] * ch - v[1] * sh, z0 = v[0] * sh + v[1] * ch;
+  const y = v[2] * cp - z0 * sp, z = v[2] * sp + z0 * cp;
+  if (z < 0.05) return null;
+  const k = innerHeight / 2 / Math.tan(fov / 2);
+  return [innerWidth / 2 + x / z * k, innerHeight / 2 - y / z * k];
+}
+
+// Direction from the current spot to the marker for a linked spot.
+function markerDir(to) {
+  const dz = to.pos[2] - cur.pos[2];
+  if (Math.abs(dz) > 1) {                       // another floor: point at the stair, a little up or down
+    const dx = STAIR[0] - cur.pos[0], dy = STAIR[1] - cur.pos[1], d = Math.hypot(dx, dy) || 1;
+    return [dx / d, dy / d, Math.tan((dz > 0 ? 14 : -28) * Math.PI / 180)];
+  }
+  return [to.pos[0] - cur.pos[0], to.pos[1] - cur.pos[1], dz - EYE + 0.05];   // the floor where you would stand
+}
+
+function draw() {
+  dirty = false;
+  const dpr = Math.min(devicePixelRatio || 1, 2), w = Math.round(innerWidth * dpr), h = Math.round(innerHeight * dpr);
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
+  gl.uniform2f(U("res"), w, h);
+  gl.uniform1f(U("heading"), heading);
+  gl.uniform1f(U("pitch"), pitch);
+  gl.uniform1f(U("f"), 1 / Math.tan(fov / 2));
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  for (const m of marks) {
+    const p = project(m.dir);
+    m.el.style.display = p ? "" : "none";
+    if (p) m.el.style.transform = `translate(${p[0]}px, ${p[1]}px)`;
+  }
+}
+const redraw = () => { if (!dirty) { dirty = true; requestAnimationFrame(draw); } };
+
+const images = {};
+const load = id => images[id] || (images[id] = new Promise((ok, bad) => {
+  const im = new Image();
+  im.onload = () => ok(im);
+  im.onerror = () => bad(new Error("missing tour/" + id + ".jpg"));
+  im.src = "tour/" + id + ".jpg";
+}));
+
+async function go(id) {
+  const to = byId[id];
+  if (!to || to === cur) return;
+  document.body.classList.add("moving");
+  let img;
+  try { [img] = await Promise.all([load(id), new Promise(r => setTimeout(r, cur && !reduced ? 260 : 0))]); }
+  catch (e) { document.body.classList.remove("moving"); return fail("That view has not been rendered yet (" + e.message + ")."); }
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, img); }
+  catch (e) {   // browsers refuse to give WebGL an image opened straight from disk
+    document.body.classList.remove("moving");
+    return fail("Open this page through a local web server (for example run: python -m http.server), not directly from the file.");
+  }
+  const first = !cur;
+  cur = to;
+  $("msg").style.display = "none";
+  if (first && to.links.length) { const d = markerDir(byId[to.links[0]]); heading = Math.atan2(d[0], d[1]); }
+  pitch *= 0.5;
+  $("w-area").textContent = "Orbis House · " + to.area;
+  $("w-name").textContent = to.name;
+  $("jump").value = id;
+  history.replaceState(null, "", "#" + id);
+  spotsEl.textContent = "";
+  marks = to.links.map(l => {
+    const t = byId[l], dir = markerDir(t), dz = t.pos[2] - to.pos[2];
+    const el = document.createElement("button");
+    el.className = "spot";
+    el.innerHTML = "<i></i><span></span>";
+    el.lastChild.textContent = (dz > 1 ? "↑ " : dz < -1 ? "↓ " : "") + t.name;
+    el.setAttribute("aria-label", "Walk to " + t.name + (Math.abs(dz) > 1 ? ", " + t.area : ""));
+    el.addEventListener("click", () => go(l));
+    el.style.setProperty("--s", Math.max(0.55, Math.min(1.25, 3.2 / Math.hypot(dir[0], dir[1], dir[2]))));
+    spotsEl.appendChild(el);
+    return { id: l, dir, el };
+  });
+  to.links.forEach(l => load(l).catch(() => {}));   // warm up the neighbours
+  document.body.classList.remove("moving");
+  dirty = false;
+  redraw();
+}
+
+// Walk to the linked spot closest to where you are looking (or behind you).
+function step(back) {
+  let best = null, bestA = 75 * Math.PI / 180;
+  for (const m of marks) {
+    let a = Math.atan2(m.dir[0], m.dir[1]) - heading - (back ? Math.PI : 0);
+    a = Math.abs(Math.atan2(Math.sin(a), Math.cos(a)));
+    if (a < bestA) { bestA = a; best = m.id; }
+  }
+  if (best) go(best);
+}
+
+let drag = null;
+canvas.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); canvas.classList.add("dragging"); });
+canvas.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const k = fov / innerHeight;                   // the picture follows the pointer
+  heading -= (e.clientX - drag.x) * k;
+  pitch = Math.max(-1.45, Math.min(1.45, pitch + (e.clientY - drag.y) * k));
+  drag = { x: e.clientX, y: e.clientY };
+  redraw();
+});
+const drop = () => { drag = null; canvas.classList.remove("dragging"); };
+canvas.addEventListener("pointerup", drop);
+canvas.addEventListener("pointercancel", drop);
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  fov = Math.max(0.5, Math.min(1.75, fov * (e.deltaY > 0 ? 1.08 : 0.92)));
+  redraw();
+}, { passive: false });
+addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT") return;
+  const k = e.key.toLowerCase();
+  if (k === "arrowleft" || k === "a") heading -= 0.12;
+  else if (k === "arrowright" || k === "d") heading += 0.12;
+  else if (k === "pageup") pitch = Math.min(1.45, pitch + 0.1);
+  else if (k === "pagedown") pitch = Math.max(-1.45, pitch - 0.1);
+  else if (k === "arrowup" || k === "w" || (k === "enter" && e.target === canvas)) step(false);
+  else if (k === "arrowdown" || k === "s") step(true);
+  else if (k === "escape") location.href = "index.html";
+  else return;
+  e.preventDefault();
+  redraw();
+});
+addEventListener("resize", redraw);
+
+// Room list, grouped by area.
+for (const area of [...new Set(TOUR.map(s => s.area))]) {
+  const g = document.createElement("optgroup");
+  g.label = area;
+  TOUR.filter(s => s.area === area).forEach(s => g.appendChild(new Option(s.name, s.id)));
+  $("jump").appendChild(g);
+}
+$("jump").addEventListener("change", e => { go(e.target.value); canvas.focus(); });
+addEventListener("hashchange", () => go(location.hash.slice(1)));
+
+console.assert(TOUR.every(s => s.links.every(l => byId[l])), "tour.js links to a spot that does not exist");
+go(byId[location.hash.slice(1)] ? location.hash.slice(1) : "garden");
+</script>
+</body>
+</html>
