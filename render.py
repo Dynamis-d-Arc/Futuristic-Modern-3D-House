@@ -969,8 +969,8 @@ RED = glow("hob_red", (1.0, 0.05, 0.02), 6)
 SEAR = tex(pbr("steak", (0.16, 0.06, 0.03), 0.5), (0.05, 0.02, 0.012), size=90, bump=0.5)
 PAINT = pbr("car_paint", (0.42, 0.015, 0.02), 0.22, 0.7, Coat_Weight=1.0, Coat_Roughness=0.03)
 TYRE = pbr("tyre", (0.012, 0.012, 0.012), 0.85)
-TAIL = glow("tail_light", (1.0, 0.03, 0.02), 8)
-HEADLIGHT = glow("headlight", (0.9, 0.95, 1.0), 10)
+TAIL = glow("tail_light", (1.0, 0.03, 0.02), 2)
+HEADLIGHT = glow("headlight", (0.9, 0.95, 1.0), 1.4)
 PEBBLE = tex(pbr("pebble", (0.07, 0.07, 0.07), 0.55), (0.02, 0.02, 0.02), size=45, bump=0.8)
 
 
@@ -993,54 +993,185 @@ def hob(x, y, z, rot):
         rod((0.13, -0.01, 0.018), (0.13 + 0.07 * math.cos(a), -0.01 + 0.07 * math.sin(a), 0.022), 0.003, LEAF2, g, seg=5)
 
 
-def loft(stations, m, p, sharp=0.45):
-    """Smooth closed body through cross-sections (y, half width, bottom, top) along local Y."""
+CARGLASS = pbr("car_glass", (0.01, 0.012, 0.014), 0.02, Alpha=0.68)        # tinted side and screen glass
+ROOFGLASS = pbr("car_roof_glass", (0.004, 0.004, 0.005), 0.03, Alpha=0.94)
+RIM = pbr("car_rim", (0.3, 0.3, 0.32), 0.25, 1.0)
+CALIPER = pbr("car_caliper", (0.5, 0.02, 0.02), 0.4)
+CARSEAT = pbr("car_seat", (0.8, 0.79, 0.76), 0.5)
+CARSCREEN = glow("car_screen", (0.55, 0.7, 0.9), 2.5)
+CARLENS = pbr("car_lens", (0.25, 0.27, 0.3), 0.05, 1.0)
+CAR = (  # body cross-sections nose to tail: y, half width, underside, beltline, top, half width at the roof rail
+    (-2.31, 0.34, 0.34, 0.44, 0.50, 0.24),
+    (-2.24, 0.70, 0.23, 0.52, 0.61, 0.52),
+    (-2.05, 0.87, 0.17, 0.62, 0.70, 0.66),
+    (-1.46, 0.925, 0.15, 0.76, 0.83, 0.72),   # front axle
+    (-1.05, 0.925, 0.15, 0.86, 0.93, 0.72),   # 4: base of the windscreen
+    (-0.58, 0.925, 0.15, 0.90, 1.22, 0.66),
+    (-0.12, 0.925, 0.15, 0.92, 1.40, 0.60),   # 6: top of the windscreen
+    (0.40, 0.925, 0.15, 0.94, 1.44, 0.58),
+    (1.00, 0.925, 0.15, 0.96, 1.38, 0.57),
+    (1.50, 0.92, 0.16, 0.98, 1.26, 0.59),
+    (1.95, 0.90, 0.18, 0.99, 1.10, 0.64),     # 10: front of the boot lid
+    (2.20, 0.83, 0.25, 0.97, 1.04, 0.62),
+    (2.30, 0.68, 0.36, 0.86, 0.96, 0.50),
+)
+CM = 6                         # mesh steps between two control points, around and along the body
+AXLES, WHEEL_R = (-1.46, 1.36), 0.345
+
+
+def spline(p0, p1, p2, p3, t):
+    """Catmull-Rom point between p1 and p2."""
+    return tuple(0.5 * (2 * b + (c - a) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (3 * b - a - 3 * c + d) * t ** 3)
+                 for a, b, c, d in zip(p0, p1, p2, p3))
+
+
+def car_ring(u):
+    """Closed cross-section at station u (fractional between rows of CAR): y and 18 * CM points (x, z).
+    Point k * CM is control point k: 0 floor, 2 sill, 3 widest, 4 shoulder, 5 beltline, 6 window top, 7 roof rail, 8 roof;
+    the left side mirrors it."""
+    i = min(int(u), len(CAR) - 2)
+    y, w, zb, zs, zt, wt = spline(*(CAR[max(0, min(len(CAR) - 1, i + k))] for k in (-1, 0, 1, 2)), u - i)
+    h, ze = zs - zb, zs + 0.92 * (zt - zs)
+    half = [(0.35 * w, zb), (0.88 * w, zb), (0.975 * w, zb + 0.1 * h), (w, zb + 0.45 * h), (0.99 * w, zb + 0.82 * h),
+            (0.93 * w, zs), (wt + 0.05, ze - 0.03), (wt - 0.02, ze), (0.4 * wt, zt)]
+    ctl = half + [(-x, z) for x, z in reversed(half)]
+    n = len(ctl)
+    return y, [spline(ctl[k - 1], ctl[k], ctl[(k + 1) % n], ctl[(k + 2) % n], t / CM) for k in range(n) for t in range(CM)]
+
+
+def car_pt(u, d, sx=1):
+    """Point on the body: station u, ring index d (control point number * CM), on the right (sx 1) or left (-1)."""
+    y, ring = car_ring(u)
+    return (sx * ring[round(d)][0], y, ring[round(d)][1])
+
+
+def car_row(u0, u1, d, sx=1, step=0.125):
+    return [car_pt(u0 + (u1 - u0) * i / round((u1 - u0) / step), d, sx) for i in range(round((u1 - u0) / step) + 1)]
+
+
+def car_skin(g, liner=False):
+    """The body as one mesh: black sills, paint, tinted glass, dark roof glass. `liner` is the dark inside of the cabin."""
+    us = [i + k / CM for i in range(len(CAR) - 1) for k in range(CM)] + [len(CAR) - 1]
     bm = bmesh.new()
-    n = 20
     rings = []
-    for y, hw, zb, zt in stations:
-        ring = []
-        for k in range(n):
-            a = (k + 0.5) / n * math.tau
-            c, s = math.cos(a), math.sin(a)
-            ring.append(bm.verts.new((hw * math.copysign(abs(c) ** sharp, c), y, (zb + zt) / 2 + (zt - zb) / 2 * math.copysign(abs(s) ** sharp, s))))
-        rings.append(ring)
-    for r0, r1 in zip(rings, rings[1:]):
-        for k in range(n):
-            bm.faces.new((r0[k], r0[k - 1], r1[k - 1], r1[k])).smooth = True
-    bm.faces.new(rings[0])
-    bm.faces.new(rings[-1][::-1])
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    o = obj("loft", bm, m, p)
-    sub = o.modifiers.new("smooth", "SUBSURF")
-    sub.levels = sub.render_levels = 2
+    for u in us:
+        y, ring = car_ring(u)
+        rings.append([bm.verts.new((x * 0.975, y, 0.55 + 0.975 * (z - 0.55)) if liner else (x, y, z)) for x, z in ring])
+    n = len(rings[0])
+    for a in range(len(us) - 1):
+        um = (us[a] + us[a + 1]) / 2
+        for d in range(n):
+            s = d // CM
+            j = s if s <= 8 else 16 - s            # which band of the section: -1 floor .. 5 side window .. 8 roof
+            vs = (rings[a][d], rings[a][(d + 1) % n], rings[a + 1][(d + 1) % n], rings[a + 1][d])
+            if liner:
+                c = sum((v.co for v in vs), Vector()) / 4
+                if j > 4 or not 4 <= um < 10 or (c.y - AXLES[1]) ** 2 + (c.z - WHEEL_R) ** 2 < 0.43 ** 2:
+                    continue
+                mi = 0
+            elif j <= 1:
+                mi = 0
+            elif j == 5 and 4.3 < um < 9.7:
+                mi = 3 if 6.5 < um < 6.67 else 2   # the pillar between the doors
+            elif j >= 7 and 4 <= um < 10:
+                mi = 3 if 6 <= um < 8.34 else 2
+            else:
+                mi = 1
+            f = bm.faces.new(vs)
+            f.smooth = True
+            f.material_index = mi
+    if not liner:
+        bm.faces.new(rings[0])
+        bm.faces.new(rings[-1][::-1])
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    return obj("car_liner" if liner else "car_body", bm, [BLACK, PAINT, CARGLASS, ROOFGLASS], g)   # black first: boolean cuts take slot 0
+
+
+def tube(pts, r, m, p=None, closed=False):
+    cu = bpy.data.curves.new("tube", "CURVE")
+    cu.dimensions = "3D"
+    cu.bevel_depth = r
+    cu.bevel_resolution = 2
+    cu.use_fill_caps = True
+    sp = cu.splines.new("POLY")
+    sp.points.add(len(pts) - 1)
+    for q, v in zip(sp.points, pts):
+        q.co = (*v, 1)
+    sp.use_cyclic_u = closed
+    cu.materials.append(m)
+    o = bpy.data.objects.new("tube", cu)
+    o.parent = p
+    C.objects.link(o)
     return o
 
 
+def car_wheel(g, body, sx, wy):
+    r, xo = WHEEL_R, sx * 0.9                       # xo: outer face of the tyre
+    arch = rod((sx * 0.5, wy, r), (sx * 1.2, wy, r), 0.395, BLACK, g, seg=48)
+    arch.hide_render = True
+    cut = body.modifiers.new("arch", "BOOLEAN")
+    cut.object = arch
+    cut.operation = "DIFFERENCE"
+    tyre = rod((sx * 0.665, wy, r), (xo, wy, r), r, TYRE, g, seg=48)
+    b = tyre.modifiers.new("bevel", "BEVEL")
+    b.width = 0.04
+    b.segments = 4
+    tyre.modifiers.new("normals", "WEIGHTED_NORMAL")
+    tyre.data.shade_smooth()
+    rod((sx * 0.88, wy, r), (xo + sx * 0.003, wy, r), 0.255, BLACK, g, seg=48)     # dark dish behind the spokes
+    rod((sx * 0.88, wy, r), (xo + sx * 0.005, wy, r), 0.185, STEEL, g, seg=40)     # brake disc
+    x0, x1 = sorted((xo, xo + sx * 0.008))
+    box(x0, x1, wy + 0.1, wy + 0.2, r - 0.07, r + 0.09, CALIPER, 0.004, g)
+    for k in range(10):
+        a = (k + 0.25) * math.tau / 10
+        c, s = math.cos(a), math.sin(a)
+        rod((xo + sx * 0.012, wy + 0.04 * c, r + 0.04 * s), (xo + sx * 0.012, wy + 0.245 * c, r + 0.245 * s), 0.012, RIM, g, seg=8).scale = (0.6, 1.8, 1)
+    tube([(xo + sx * 0.008, wy + 0.25 * math.cos(i * math.tau / 48), r + 0.25 * math.sin(i * math.tau / 48)) for i in range(48)], 0.013, RIM, g, True)
+    rod((xo, wy, r), (xo + sx * 0.022, wy, r), 0.05, RIM, g, seg=24)
+
+
 def car(x, y, z, rot=0.0):
-    """Low two-seat sports car, 4.5 m long, nose at local -Y. A generic shape, not a real model."""
+    """Electric fastback saloon in the style of a Tesla, 4.6 m long, nose at local -Y. Scripted, unbadged."""
     g = G(x, y, z, rot)
-    body = loft(((-2.25, 0.5, 0.26, 0.46), (-2.0, 0.86, 0.17, 0.62), (-1.35, 0.96, 0.14, 0.77), (-0.4, 0.97, 0.14, 0.8), (0.6, 0.98, 0.14, 0.83),
-                 (1.5, 0.98, 0.15, 0.87), (2.05, 0.93, 0.2, 0.86), (2.25, 0.78, 0.32, 0.76)), PAINT, g)
-    loft(((-1.0, 0.6, 0.66, 0.7), (-0.35, 0.72, 0.7, 1.06), (0.45, 0.73, 0.7, 1.15), (1.3, 0.68, 0.74, 1.02), (1.95, 0.52, 0.78, 0.88)), HOB, g)
+    body = car_skin(g)
+    car_skin(g, True)
     for sx in (-1, 1):
-        for wy in (-1.42, 1.38):  # wheels sit inside arches cut from the body
-            arch = rod((sx * 0.55, wy, 0.32), (sx * 1.2, wy, 0.32), 0.4, BLACK, g, seg=40)
-            arch.hide_render = True
-            cut = body.modifiers.new("arch", "BOOLEAN")
-            cut.object = arch
-            cut.operation = "DIFFERENCE"
-            rod((sx * 0.6, wy, 0.32), (sx * 0.85, wy, 0.32), 0.32, TYRE, g, seg=40)
-            rod((sx * 0.8, wy, 0.32), (sx * 0.854, wy, 0.32), 0.22, STEEL, g, seg=40)
-            rod((sx * 0.8, wy, 0.32), (sx * 0.858, wy, 0.32), 0.065, BLACK, g, seg=20)
-            for k in range(5):  # spokes
-                a = k * math.tau / 5
-                rod((sx * 0.856, wy, 0.32), (sx * 0.856, wy + 0.2 * math.cos(a), 0.32 + 0.2 * math.sin(a)), 0.02, BLACK, g, seg=6)
-        box(sx * 0.58 - 0.15, sx * 0.58 + 0.15, -2.07, -1.98, 0.54, 0.61, HEADLIGHT, 0.01, g)
-        box(sx * 0.99 - 0.02, sx * 0.99 + 0.02, 0.5, 1.05, 0.36, 0.56, BLACK, 0.015, g)   # side intake
-    box(-0.7, 0.7, 2.2, 2.27, 0.6, 0.63, TAIL, 0.008, g)
-    box(-0.75, 0.75, -2.1, -1.9, 0.15, 0.2, BLACK, 0.01, g)       # splitter
-    box(-0.7, 0.7, 2.0, 2.24, 0.18, 0.3, BLACK, 0.01, g)          # diffuser
+        for wy in AXLES:
+            car_wheel(g, body, sx, wy)
+        for u in (4.15, 6.58, 7.9):                                   # door shut lines
+            tube([car_pt(u, d, sx) for d in range(2 * CM, 5 * CM + 1)], 0.004, BLACK, g)
+        tube(car_row(1.4, 4.0, 6 * CM, sx), 0.004, BLACK, g)          # bonnet shut line
+        for d in (5 * CM, 6 * CM):                                    # window surround
+            tube(car_row(4.25, 9.75, d, sx), 0.007, BLACK, g)
+        for u in (6.2, 7.55):                                         # flush door handles
+            hx, hy, hz = car_pt(u, 4 * CM, sx)
+            box(hx - 0.008, hx + 0.008, hy - 0.09, hy + 0.09, hz - 0.012, hz + 0.012, CHROME, 0.004, g)
+        mx, my, mz = car_pt(4.55, 5 * CM, sx)                         # door mirror
+        box(min(mx, mx + sx * 0.1), max(mx, mx + sx * 0.1), my - 0.02, my + 0.02, mz + 0.0, mz + 0.03, BLACK, 0.008, g)
+        ball(mx + sx * 0.13, my, mz + 0.06, 1, PAINT, g, (0.1, 0.055, 0.06))
+        hx, hy, hz = car_pt(1.9, 5.4 * CM, sx)                        # headlight, sunk into the wing
+        ball(hx - sx * 0.01, hy, hz - 0.018, 1, CARLENS, g, (0.07, 0.15, 0.028))
+        ball(hx + sx * 0.022, hy + 0.01, hz - 0.017, 1, HEADLIGHT, g, (0.016, 0.125, 0.03))    # light strip along its outer edge
+        hx, hy, hz = car_pt(11.35, 4.6 * CM, sx)                      # tail light
+        ball(hx - sx * 0.035, hy - 0.03, hz, 1, TAIL, g, (0.07, 0.17, 0.035))
+        # front seats
+        box(sx * 0.38 - 0.24, sx * 0.38 + 0.24, -0.35, 0.15, 0.32, 0.47, CARSEAT, 0.04, g, 0.03)
+        box(sx * 0.38 - 0.23, sx * 0.38 + 0.23, 0.1, 0.24, 0.45, 1.05, CARSEAT, 0.04, g, 0.03).rotation_euler.x = -0.2
+        box(sx * 0.38 - 0.12, sx * 0.38 + 0.12, 0.2, 0.29, 1.06, 1.24, CARSEAT, 0.03, g, 0.03)
+    tube([car_pt(1.4, d) for d in range(6 * CM, 11 * CM + 1)], 0.004, BLACK, g)          # front edge of the bonnet
+    box(-0.42, 0.42, -2.27, -2.1, 0.215, 0.3, BLACK, 0.02, g)                              # lower intake
+    box(-0.3, 0.3, 2.2, 2.31, 0.42, 0.54, BLACK, 0.01, g)
+    box(-0.46, 0.46, 2.29, 2.307, 0.8, 0.814, CHROME, 0.003, g)                           # strip between the tail lights                                    # number-plate recess
+    # cabin: bulkhead, dashboard, screen, steering wheel, rear bench, parcel shelf
+    box(-0.82, 0.82, -1.12, -1.05, 0.17, 0.85, BLACK, 0.0, g)
+    box(-0.8, 0.8, -1.02, -0.55, 0.6, 0.9, BLACK, 0.03, g)
+    box(-0.2, 0.2, -0.56, -0.545, 0.86, 1.1, CARSCREEN, 0.004, g)
+    tube([(-0.38 + 0.18 * math.cos(a), -0.42 - 0.075 * math.sin(a), 0.93 + 0.165 * math.sin(a)) for a in (i * math.tau / 32 for i in range(32))],
+         0.015, BLACK, g, True)
+    rod((-0.38, -0.42, 0.93), (-0.38, -0.6, 0.85), 0.03, BLACK, g, seg=10)
+    box(-0.6, 0.6, 0.5, 0.97, 0.34, 0.48, CARSEAT, 0.04, g, 0.03)
+    box(-0.58, 0.58, 0.95, 1.08, 0.46, 1.0, CARSEAT, 0.04, g, 0.03).rotation_euler.x = -0.25
+    box(-0.75, 0.75, 1.35, 1.9, 0.6, 0.98, BLACK, 0.02, g)
     return g
 
 
@@ -1303,7 +1434,7 @@ for level, ((x0, x1, y0, y1), c) in enumerate(zip((L1, L2, L3), CL)):
 # ---------------------------------------------------------------- level 1: car gallery, garden lounge, indoor garden, living, dining, kitchen, powder room
 z = FL[0]
 # west wing: the car behind glass, then a lounge by the bookshelves
-car(-5.0, -1.45, z)
+car(-5.0, -1.38, z)
 for x in (-6.3, -3.75):
     box(x, x + 0.05, -3.6, 0.7, z, z + 0.008, LED)
 model("modern_wooden_cabinet", -5.0, 1.3, z, 180)          # sideboard between the car and the lounge
